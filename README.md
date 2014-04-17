@@ -1,4 +1,4 @@
 aiddata-utils
 =============
 
-dirty scripts made to support work by aiddata.org
+Dirty scripts made to support work by [AidData](aiddata.org).
