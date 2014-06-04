@@ -1,0 +1,20 @@
+#!/usr/bin/expect
+
+# verify whether email address is present on server
+# example use:
+# $ expect verify_email.expect alt2.gmail-smtp-in.l.google.com 25 adecatur@aiddata.org
+
+set timeout 20
+set ip [lindex $argv 0]
+set port [lindex $argv 1]
+set email [lindex $argv 2]
+
+spawn telnet $ip $port
+expect "'^]'." sleep .1;
+send "HELO\r"
+send "mail from: <me@example.com>\r"
+send "rcpt to: <$email>\r"
+sleep 1
+send "quit\r"
+# really should be using 'expect eof' or 'close' here but those seem to hang
+interact
