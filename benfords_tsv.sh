@@ -21,6 +21,8 @@ countLeadingDigits=$(
 sum=$(echo "$countLeadingDigits" | awk -F'\t' '{ sum += $1 } END { print sum }')
 
 i=0
+# header
+echo -e "leading_digit\tpercent_frequency\tratio_to_benfords"
 echo "$countLeadingDigits" | while read line
 do
         prctFreq=$(echo "$line" | awk -F'\t' "{ OFS="\t"; print \$1 / ${sum} * 100 }")
@@ -28,4 +30,5 @@ do
         leadingDigit=$(echo "$line" | awk -F'\t' '{print $2}')
         echo -e "${leadingDigit}\t$( printf "%4.2f" ${prctFreq} )\t$( printf "%4.2f" ${prctBenfords} )"
         i=$(($i+1))
-done
+done |\
+sort -k1,1 -n
