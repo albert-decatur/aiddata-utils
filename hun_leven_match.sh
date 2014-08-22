@@ -14,12 +14,13 @@ levenshtein_allowed=$2
 allowed_length=$3
 cat $intxt |\
 sed 's:\/::g' |\
-parallel --gnu --colsep '\|' --header : '
+parallel --gnu --trim n --colsep '\|' --header : '
 	function length { echo $1 | tr -d "[:punct:]" | awk "{print length(\$1)}";}
 	function comparable { echo $1 | tr -d "[:punct:]" | awk "{print tolower(\$0) }";}
 	function hunout { echo $1 | tr -d "[:punct:]" | hunspell -a | sed "1d" | grep -vE "^$" | grep -vE "\*"; }
 	function levenshtein { /usr/local/bin/levenshtein.py $1 $2; }
-	function printall { echo {};}
+	# NB: because GNU parallel --colsep will not print {} with original delimiters, print just ID fields and use them to find acceptable records later
+	function printall { echo {aiddata_id}"|"{geonameid};}
 
 	# if the length of the match_text and the placename are above the allowed length then proceed
 	if [[ $( length {match_text} ) -ge '$allowed_length' && $( length {placename} ) -ge '$allowed_length' ]]; then
