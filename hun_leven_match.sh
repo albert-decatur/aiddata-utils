@@ -6,7 +6,7 @@
 #	3. **and** match_text string meet minimum length
 # NB: entirely specific to output from geonames_aiddata21_match.sh
 # TODO: take into account whether match is entire word or only part of word.  work in vowels vs consontants, esp. position in word.  soundex?  metaphone?
-# user args: 1) input pipe separated file with the fields named 'placename','match_text', etc, 2) allowable levenshtein distance, 3) allowable minimum match_text string length
+# user args: 1) input pipe separated file with the fields named 'placename','match_text', etc, 2) allowable levenshtein distance, 3) allowable minimum match_text string length, 4) list of hosts to work on GNU parallel style
 # example use: $0 xaa 1 4
 
 intxt=$1
@@ -14,7 +14,7 @@ levenshtein_allowed=$2
 allowed_length=$3
 cat $intxt |\
 sed 's:\/::g' |\
-parallel --gnu --trim n --colsep '\|' --header : '
+parallel --gnu -S "$4" --trim n --colsep '\|' --header : '
 	function length { echo $1 | tr -d "[:punct:]" | awk "{print length(\$1)}";}
 	function comparable { echo $1 | tr -d "[:punct:]" | awk "{print tolower(\$0) }";}
 	function hunout { echo $1 | tr -d "[:punct:]" | hunspell -a | sed "1d" | grep -vE "^$" | grep -vE "\*"; }
