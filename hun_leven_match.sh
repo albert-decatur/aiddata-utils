@@ -19,10 +19,10 @@ parallel --gnu --colsep '\|' --header : '
 	function comparable { echo $1 | tr -d "[:punct:]" | awk "{print tolower(\$0) }";}
 	function hunout { echo $1 | tr -d "[:punct:]" | hunspell -a | sed "1d" | grep -vE "^$" | grep -vE "\*"; }
 	function levenshtein { /usr/local/bin/levenshtein.py $1 $2; }
-	function printall { echo {geonameid}"|"{latitude}"|"{longitude}"|"{placename}"|"{match_text}"|"{aiddata_id}"|"{title}"|"{short_description}"|"{long_description} ;}
+	function printall { echo {};}
 
 	# if the length of the match_text and the placename are above the allowed length then proceed
-	if [[ $( length {match_text} ) -ge $allowed_length && $( length {placename} ) -ge '$allowed_length' ]]; then
+	if [[ $( length {match_text} ) -ge '$allowed_length' && $( length {placename} ) -ge '$allowed_length' ]]; then
 		if [[ $( comparable {placename} ) != $( comparable {match_text} ) ]]; then 
 			hun_match=$( hunout {match_text} )
 			hun_place=$( hunout {placename} )
