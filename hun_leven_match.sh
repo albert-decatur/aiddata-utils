@@ -5,9 +5,9 @@
 #	2. else match if **both** appear in hunspell english dictionary, or **neither** appear in hunspell english dictionary **and** levenshtein distance is not above user supplied limit
 #	3. **and** match_text string meet minimum length
 # NB: entirely specific to output from geonames_aiddata21_match.sh
-# TODO: take into account whether match is entire word or only part of word.  work in vowels vs consontants, esp. position in word.  soundex?  metaphone?
+# TODO: record bit packed field on what passed and didn't pass (as 1/0). for simple comparison make sure to 'iconv -c -f utf-8 -t ASCII//TRANSLIT'. make a comparison as if they had no vowels (including accented vowels). maybe get rid of hunspell check.
 # user args: 1) input pipe separated file with the fields named 'placename','match_text', etc, 2) allowable levenshtein distance, 3) allowable minimum match_text string length, 4) list of hosts to work on GNU parallel style
-# example use: $0 xaa 1 4
+# example use: .$0 aiddata21_autoGeo_matches.txt 1 4 :,128.239.103.87,128.239.121.175,grover.itpir.wm.edu,128.239.124.103,cookiemonster.itpir.wm.edu
 
 intxt=$1
 levenshtein_allowed=$2
