@@ -26,7 +26,7 @@ parallel --gnu -S "$hosts" --trim n --colsep '\|' --header : '
 	function as_ascii { echo $1 | tr -d "[:punct:]" | sed "s:[ \t]\+::g" | awk "{print tolower(\$0) }" | iconv -c -f utf8 -t ASCII//TRANSLIT | grep -oE "[A-Za-z]+";}
 	function length { echo $1 | tr -d "[:punct:]" | awk "{print length(\$0)}";}
 	function stopword { regex=$( echo $1 | tr -d "[:punct:]" ); grep -iE "^$regex$" '$stopwords'; }
-	function levenshtein { /usr/local/bin/levenshtein.py $1 $2; }
+	function levenshtein { /usr/local/bin/levenshtein.py "$1" "$2"; }
 	function extract_dm { /opt/double-metaphone/dmtest <( echo -e "{match_text}\n{placename}" | sed "s:,::g" ) | awk -F, "{OFS=\"\t\";print \$2,\$3}" | sed "$1d" | tr "\t" "\n" ; }
 	export -f extract_dm
 	# allow diff_dm to use function extract_dm
