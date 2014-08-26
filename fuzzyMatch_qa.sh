@@ -18,6 +18,10 @@
 intxt=$1
 stopwords=$2
 hosts=$3
+
+# print header
+echo "match_text|placename|identical|as_whitepunctcase|as_ascii|length_match|is_stopword|levenshtein_dist|count_dm_agree"
+
 cat $intxt |\
 sed 's:\/::g' |\
 parallel --gnu -S "$hosts" --trim n --colsep '\|' --header : '
