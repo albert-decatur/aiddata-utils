@@ -67,5 +67,5 @@ parallel --gnu -S "$hosts" --trim n --colsep '\|' --header : '
 
 	count_dm_agree=$( diff_dm | grep -vE "^$" | wc -l )
 
-	echo "$identical|$as_whitepunctcase|$as_ascii|$length_match|$is_stopword|$levenshtein_dist|$count_dm_agree"
+	echo $(printall)"|$identical|$as_whitepunctcase|$as_ascii|$length_match|$is_stopword|$levenshtein_dist|$count_dm_agree"
 '
