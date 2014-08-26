@@ -2,19 +2,17 @@
 
 # given a pipe separated list of match_text and placename, 
 # make a series of fields that record the following information relevant to reducing comission error:
-#	1. is perfect match ( A == B )
-#	2. is perfect match without whitespace and punctuation and all lower case
-#	3. is perfect match if same as #2 but also converted to ASCII//TRANSLIT and only [A-Za-z] are kept
-#	4. string length of match_text without punctuation (very short strings are often junk)
-#	5. match text is a stopword according to user supplied file (ought to be multi-lingual) (case insensitive) - TODO: check if placename is a stopword?
-#	6. Levenshtein distance (higher is greater difference)
-#	7. both sets of Double Metaphone codes match
-#	8. one set of Double Metaphone codes match
-#	9. neither set of Double Metaphone codes match
+#	1. is perfect match ( A == B ). 1 for TRUE and 0 for FALSE.
+#	2. is perfect match without whitespace and punctuation and all lower case. 1 for TRUE and 0 for FALSE.
+#	3. is perfect match if same as #2 but also converted to ASCII//TRANSLIT and only [A-Za-z] are kept. 1 for TRUE and 0 for FALSE.
+#	4. string length of match_text without punctuation (very short strings are often junk). Length of string.
+#	5. match text is a stopword according to user supplied file (ought to be multi-lingual) (case insensitive). 1 for TRUE and 0 for FALSE.
+#	6. Levenshtein distance (higher is greater difference). Reports Levenshtein distance.
+#	7. count of Double Metaphone codes that are the same between match_text and placename. Max is 2, min is 0.
 #
 # NB: makes sense to just use unique match_text / placename combinations with this script and match back later.
 # TODO: user provides names of fields, path to levenshtein and double metaphone scripts, field delimiter, localhost assumed if no list of hosts given
-# user args: 1) input pipe separated file with the fields 'placename' and 'match_text' **with header**, 2) list of stopwords in any languages, one word per line, 3) comma separated list of hosts to run on with GNU parallel (NB: semicolon is localhost), 
+# user args: 1) input pipe separated file with the fields 'placename' and 'match_text' **with header**, 2) list of stopwords in any languages, one word per line, 3) comma separated list of hosts to run on with GNU parallel (NB: semicolon is localhost)
 # example use: $0 uniq_matches.txt stopwords_en_es_fr_pt.txt :,128.239.103.87,128.239.121.175,grover.itpir.wm.edu,128.239.124.103,cookiemonster.itpir.wm.edu
 
 intxt=$1
@@ -30,7 +28,9 @@ parallel --gnu -S "$hosts" --trim n --colsep '\|' --header : '
 	function stopword { regex=$( echo $1 | tr -d "[:punct:]" ); grep -iE "^$regex$" '$stopwords'; }
 	function levenshtein { /usr/local/bin/levenshtein.py $1 $2; }
 	function extract_dm { /opt/double-metaphone/dmtest <( echo -e "{match_text}\n{placename}" | sed "s:,::g" ) | awk -F, "{OFS=\"\t\";print \$2,\$3}" | sed "$1d" | tr "\t" "\n" ; }
-	function diff_dm { match_text_dm=$( $1 ); placename_dm=$( $2 ); diff_dm=$( diff <(echo "$match_text_dm") <(echo "$placename_dm") ); }
+	export -f extract_dm
+	# allow diff_dm to use function extract_dm
+	function diff_dm { match_text_dm=$( extract_dm 2 ); placename_dm=$( extract_dm 1 ); diff_dm=$( wdiff -1 -2 <(echo "$match_text_dm") <(echo "$placename_dm") | grep -vE "^=*$" ); echo "$diff_dm"; }
 	function printall { echo {match_text}"|"{placename};}
 	
 	identical=$( identical {match_text} {placename} )
@@ -63,16 +63,9 @@ parallel --gnu -S "$hosts" --trim n --colsep '\|' --header : '
 		is_stopword=0
 	fi
 
-	levenshtein_dist=$( levenshtein {match_text} {placename} ) 2>/dev/null
+	levenshtein_dist=$( levenshtein {match_text} {placename} )
 
-	# problem here
-	diff_dm <(echo $( extract_dm 2 )) <(echo $( extract_dm 1 ))
+	count_dm_agree=$( diff_dm | grep -vE "^$" | wc -l )
 
-	echo "$identical|$as_whitepunctcase|$as_ascii|$length_match|$is_stopword|$levenshtein_dist" 1>/dev/null
-	
-#		if [[ $( comparable {placename} ) != $( comparable {match_text} ) ]]; then 
-#				dist=$( levenshtein {match_text} {placename} )
-#				if [[ $dist -le '$levenshtein_allowed' ]]; then 
-#					printall
-#				fi
+	echo "$identical|$as_whitepunctcase|$as_ascii|$length_match|$is_stopword|$levenshtein_dist|$count_dm_agree"
 '
