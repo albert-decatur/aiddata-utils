@@ -8,6 +8,7 @@
 use strict;
 use warnings;
 use File::Basename;
+use File::Spec;
 
 use Getopt::Std;
 my %args;
@@ -40,9 +41,12 @@ $table = fileparse($table);
 $table =~ s/.*(^[^.]*).*/$1/g;
 $table =~ s/^|$/\\"/g;
 
+# get absolute path to input text file
+my $txtabs = File::Spec->rel2abs( $args{i} ) ;
+
 my $db = $args{p};
 # write the string that will make the empty pgsql table and populate it with the csv
-$str = "psql -d $db -c \"DROP TABLE IF EXISTS $table; CREATE TABLE $table ($str); COPY $table FROM '$args{i}' WITH DELIMITER E'$args{d}' CSV HEADER\"";
+$str = "psql -d $db -c \"DROP TABLE IF EXISTS $table; CREATE TABLE $table ($str); COPY $table FROM '$txtabs' WITH DELIMITER E'$args{d}' CSV HEADER\"";
 # remove any returns or newlines in the string
 $str =~ s/\r|\n//g;
 print $str;
