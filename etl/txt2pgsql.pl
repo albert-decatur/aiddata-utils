@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 # txt2pgsql.pl
 # very dumb script that writes the bash to copy a delimited text file to postgres.  all field types are the same!
-# NB: characters used by regex must be escaped, eg -d "\|"
+# NB: characters used by regex must be escaped, eg -d "\|". Also, postgres ctid is used to remove header rather than having Perl read file into memory, OR use Postgres CSV format for COPY which produced quoting problems. Sloppy.
 # args: -i is input text file, -t is field type string eg "varchar(100)", -d is field delimiter, -p is postgres database
 # example use: $0 -i /tmp/foo.dat.txt -d "\|" -t "varchar(100)" -p scratch | sh
 
@@ -42,11 +42,16 @@ $table =~ s/.*(^[^.]*).*/$1/g;
 $table =~ s/^|$/\\"/g;
 
 # get absolute path to input text file
-my $txtabs = File::Spec->rel2abs( $args{i} ) ;
+my $txtabs = File::Spec->rel2abs( $args{i} );
 
 my $db = $args{p};
 # write the string that will make the empty pgsql table and populate it with the csv
-$str = "psql -d $db -c \"DROP TABLE IF EXISTS $table; CREATE TABLE $table ($str); COPY $table FROM '$txtabs' WITH DELIMITER E'$args{d}' CSV HEADER\"";
+# also remove header with postgres ctid - very sloppy
+$str = "psql -d $db -c 
+	\"DROP TABLE IF EXISTS $table; 
+	CREATE TABLE $table ($str); 
+	COPY $table FROM '$txtabs' WITH DELIMITER E'$args{d}';
+	DELETE FROM $table WHERE ctid IN ( SELECT ctid FROM worthy_matches LIMIT 1 );\"";
 # remove any returns or newlines in the string
 $str =~ s/\r|\n//g;
 print $str;
