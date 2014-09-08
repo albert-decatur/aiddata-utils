@@ -51,7 +51,7 @@ $str = "psql -d $db -c
 	\"DROP TABLE IF EXISTS $table; 
 	CREATE TABLE $table ($str); 
 	COPY $table FROM '$txtabs' WITH DELIMITER E'$args{d}';
-	DELETE FROM $table WHERE ctid IN ( SELECT ctid FROM worthy_matches LIMIT 1 );\"";
+	DELETE FROM $table WHERE ctid IN ( SELECT ctid FROM $table LIMIT 1 );\"";
 # remove any returns or newlines in the string
 $str =~ s/\r|\n//g;
 print $str;
