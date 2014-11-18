@@ -87,7 +87,8 @@ function mk_prec_tables {
 						i.financials_per_loc,
 						a.gid as geom_id 
 					from 
-						intermediate_locs as i, allgeom as a 
+						intermediate_locs as i,
+						allgeom as a 
 					where 
 						$prec_code_where
 						and a.adm_level = '${2}' 
@@ -112,7 +113,27 @@ echo "
 	where 
 		i.precision_code = '1'
 	;"
-
+# mk prec code 2 table - buffer point by 25km and clip to adm0 it falls under
+# NB: hopefully will not need to st_makevalid on adm0
+echo "
+	drop table prec2;
+	create table prec2 as 
+	select 
+		i.financials_per_loc,
+		st_intersection(
+			(
+				(st_buffer(i.geom::geography,25000)::geometry)
+			),
+			st_makevalid(a.geom)
+		) as geom, 
+	from 
+		intermediate_locs as i,
+		allgeom as a 
+	where 
+		st_within(i.geom,a.geom) 
+		and a.adm_level = '0' 
+		and d.precision_code = '2'
+	;"
 # get geoms for prec 3
 by_adm 3 2
 # get geoms for prec 4
@@ -121,5 +142,5 @@ by_adm 4 1
 by_adm "6 8" 1
 }
 
-#mk_intermediate_locs
+mk_intermediate_locs
 mk_prec_tables
