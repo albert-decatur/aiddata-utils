@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# assign geoms to aiddata points - assume distribution by first even split between locations and then even split along surface area
+# assign geoms to aiddata points and then rasterize and sum - assume distribution by first even split between locations and then even split along surface area
 # assign adm0,adm1,adm2,25 km buffered point, or just initial aid point based on precision code, lat, lng
 # assign financials based on input field of users choice - assumed to be at project level, distributed evenly across project locations
 # inputs: postgres table with { projectid, financials column, precision code, lat, lng }, **and** allgeom table in postgis from GAUL boundaries with adm_level field (0|1|2) and geom field
