@@ -120,23 +120,29 @@ echo "
 echo "
 	--drop table prec2;
 	create table prec2 as 
-	select 
-		i.financials_per_loc,
-		-- clip the 25km buffer to the adm0 that the point lies in
-		st_intersection(
-			(
-				-- make the 25km bufer
-				(st_buffer(i.geom::geography,25000)::geometry)
-			),
-			st_makevalid(a.geom)
-		) as geom 
+	select
+		( tmp.financials_per_loc / st_area(tmp.geom::geography)/1000000 ) as financials_per_sqkm,
+		tmp.geom
 	from 
-		intermediate_locs as i,
-		allgeom as a 
-	where 
-		st_within(i.geom,a.geom) 
-		and a.adm_level = '0' 
-		and i.precision_code = '2'
+		(
+			select
+				i.financials_per_loc,
+				-- clip the 25km buffer to the adm0 that the point lies in
+				st_intersection(
+					(
+						-- make the 25km bufer
+						(st_buffer(i.geom::geography,25000)::geometry)
+					),
+					st_makevalid(a.geom)
+				) as geom 
+			from
+				intermediate_locs as i,
+				allgeom as a 
+			where 
+				st_within(i.geom,a.geom) 
+				and a.adm_level = '0' 
+				and i.precision_code = '2'
+		) as tmp
 	;"
 # get geoms for prec 3
 by_adm 3 2
