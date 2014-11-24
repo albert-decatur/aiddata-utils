@@ -82,7 +82,7 @@ function mk_prec_tables {
 	fi
 	adm=$2
 		echo "
-			drop table prec${prec_code_table};
+			--drop table prec${prec_code_table};
 			create table prec${prec_code_table} as 
 			select 
 				( financials_per_loc / ( st_area(geom::geography)/1000000 ) ) as financials_per_sqkm,
@@ -115,23 +115,38 @@ function mk_prec_tables {
 			alter table prec${prec_code_table} add column gid SERIAL
 			;"
 	}
-# mk prec code 1 table - just keep lat/lng
+# mk prec code 1 table - move all lat/lng over to template pixels after summing financials to template pixels
+# this prevents us from having to use st_union(rast,'SUM') which fails
 echo "
-	--drop table prec1;
+	drop table prec1;
 	create table prec1 as 
-	select 
-		i.project_id,
-		i.financials_per_loc,
-		i.geom 
+	select
+		tmp.financials_per_loc,
+		st_setsrid((st_makepoint(ST_RasterToWorldCoordX((select rast from template),tmp.xcol),ST_RasterToWorldCoordY((select rast from template),tmp.ycol))),4326) as geom 
 	from 
-		intermediate_locs as i 
-	where 
-		i.precision_code = '1'
+		( 
+			select 
+				sum(p.financials_per_loc) as financials_per_loc,
+				st_worldtorastercoordx((select rast from template),p.geom) as xcol,
+				st_worldtorastercoordy((select rast from template),p.geom) as ycol 
+			from
+				(
+					select 
+						i.project_id,
+						i.financials_per_loc,
+						i.geom 
+					from 
+						intermediate_locs as i 
+					where 
+						i.precision_code = '1'
+				) as p
+			group by 
+				st_worldtorastercoordx((select rast from template),p.geom),st_worldtorastercoordy((select rast from template),p.geom)
+		) as tmp
 	;
 	alter table prec1 add column gid SERIAL
 	;"
 # mk prec code 2 table - buffer point by 25km and clip to adm0 it falls under
-# NB: hopefully will not need to st_makevalid on adm0
 echo "
 	--drop table prec2;
 	create table prec2 as 
