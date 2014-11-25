@@ -18,7 +18,7 @@
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
 # example use: $0 m4r usd allgeom climate_cities /tmp/out.tif
 
-inaid=mini_m4r
+inaid=m4r
 infinancials=usd
 ingeom=allgeom
 db=scratch
@@ -28,7 +28,7 @@ rm $outrast 2>/dev/null
 function mk_intermediate_locs {
 	# make an intermediate table with financials_per_loc, assuming an even split of project funds between all project locs
 	echo "
-		--drop table intermediate_locs;
+		drop table intermediate_locs;
 		create table intermediate_locs as 
 			select 
 				$inaid.project_id,
@@ -82,10 +82,10 @@ function mk_prec_tables {
 	fi
 	adm=$2
 		echo "
-			--drop table prec${prec_code_table};
+			drop table prec${prec_code_table};
 			create table prec${prec_code_table} as 
 			select 
-				( financials_per_loc / ( st_area(geom::geography)/1000000 ) ) as financials_per_sqkm,
+				( financials_per_loc / ( st_area(geom::geography)/1000000 ) ) as financials,
 				geom
 			from 
 				(
@@ -117,11 +117,13 @@ function mk_prec_tables {
 	}
 # mk prec code 1 table - move all lat/lng over to template pixels after summing financials to template pixels
 # this prevents us from having to use st_union(rast,'SUM') which fails
+# use Lambert Azimuthal Equal-Area, find pixel surface area and divide financials by it to get aid per sqkm, export points to shapefile, rasterize with gdal, and then incorporate to map algebra
+# it is perhaps more correct to pursue calculating the area of individual pixels with degrees as map units (which I did implement), but this creates the problem of PostGIS coming up with null pixels when it should not
 echo "
 	drop table prec1;
 	create table prec1 as 
 	select
-		tmp.financials_per_loc,
+		tmp.financials_per_loc as financials,
 		st_setsrid((st_makepoint(ST_RasterToWorldCoordX((select rast from template),tmp.xcol),ST_RasterToWorldCoordY((select rast from template),tmp.ycol))),4326) as geom 
 	from 
 		( 
@@ -148,10 +150,10 @@ echo "
 	;"
 # mk prec code 2 table - buffer point by 25km and clip to adm0 it falls under
 echo "
-	--drop table prec2;
+	drop table prec2;
 	create table prec2 as 
 	select
-		( tmp.financials_per_loc / ( st_area(tmp.geom::geography)/1000000 ) ) as financials_per_sqkm,
+		( tmp.financials_per_loc / ( st_area(tmp.geom::geography)/1000000 ) ) as financials,
 		tmp.geom
 	from 
 		(
@@ -178,11 +180,11 @@ echo "
 	alter table prec2 add column gid SERIAL
 	;"
 # get geoms for prec 3
-by_adm 3 2
+#by_adm 3 2
 # get geoms for prec 4
-by_adm 4 1
+#by_adm 4 1
 # get geoms for prec 6 or 8
-by_adm "5 6 8" 0
+#by_adm "5 6 8" 0
 }
 
 # make GIST index for each precision code table
@@ -192,6 +194,11 @@ function mk_index {
 		echo "create index i_${table} on $table using gist(geom);"
 	done
 }
+
+# rasterize the precision geom layers, with one layer each for prec{1,3,4,568} and one raster per feature for pre2 (they overlap) 
+#function rasterize {
+#	
+#}
 
 mk_intermediate_locs | psql $db
 mk_prec_tables | psql $db
