@@ -10,11 +10,11 @@
 #	if tables exist they must be d#ropped manually
 #	input aid table must have valid lng,lat, be wgs84, prec code must be {1,2,3,4,5,6,8}
 #	financials must refer to project level
-#	aid must fall within an allgeom to be considered when prec code is {3,4}, and to be clipped properly to a prec coce 2 (clipped by the adm0 it falls into)
+#	aid must fall within an allgeom to be considered when prec code is not 1, and to be clipped properly to a prec coce 2 (clipped by the adm0 it falls into)
 #	the following fields must in the inaid table:
 #		project_id,precision_code,latitude,longitude, financial field of user's choice
-#	assumes srid of allgeom is EPSG:4326
-# TODO: modify to allow for dasymetric output rasters, eg weight in-polygon split by an input raster like population, poverty, flood risk, ag output, etc
+#	assumes srid of allgeom and template raster is EPSG:4326
+#	assumes 36000, 17363 columns and rows in the EPSG:4326 template raster (that's '-te -180 -90 180 90 -tr 0.01 0.01' in gdal_rasterize speak)
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
 # example use: $0 m4r usd allgeom climate_cities /tmp/out.tif
 
@@ -22,6 +22,7 @@ inaid=mini_m4r
 infinancials=usd
 ingeom=allgeom
 db=scratch
+user=adecatur
 outrast=/tmp/out.tif
 rm $outrast 2>/dev/null
 
@@ -67,7 +68,7 @@ function mk_prec_tables {
 		prec_code_table=$1
 		prec_code_where="i.precision_code = '${1}'"
 	else
-		# allow for double quote separated multiple prec codes like "6 8"
+		# allow for double quote separated multiple prec codes like "5 6 8"
 		prec_code_table=$(
 			echo "$1" |\
 			sed 's: ::g'
@@ -89,6 +90,7 @@ function mk_prec_tables {
 				sum(financials) as financials,
 				p.geom
 			from
+			-- get adm that have intermediate points
 				(
 					select 
 						a.gid,
@@ -157,6 +159,7 @@ echo "
 				i.project_id,
 				i.financials_per_loc,
 				st_buffer(i.geom::geography,25000)::geometry as geom
+-- tmp do not clip to adm0 to speed up testing
 --				-- clip the 25km buffer to the adm0 that the point lies in
 --				st_intersection(
 --					(
@@ -214,6 +217,22 @@ echo "
 			group by 
 				a.gid,a.financials,a.geom 
 		)
+	;
+	-- take the inverse of prec2_nointersect, meaning prec2 polys that do overlap at least one other prec2 poly
+	-- note that either of these tables prec2_nointersect or prec2_intersect can legitimately have 0 records, which could cause problems for the script
+	drop table prec2_intersect; 
+	create table prec2_intersect as 
+	select 
+		* 
+	from 
+		prec2 as a 
+	where 
+		a.gid not in ( 
+				select 
+					b.gid 
+				from 
+					prec2_nointersect as b
+			)
 	;"
 # get geoms for prec 3
 by_adm 3 2
@@ -232,10 +251,48 @@ function mk_index {
 }
 
 # rasterize the precision geom layers, with one layer each for prec{1,3,4,568} and one raster per feature for pre2 (they overlap) 
-#function rasterize {
-#	
-#}
+function rasterize {
+# export tifs for prec{1,2_nointeresects,3,4,568}, and for each prec2_intersects raster
+# next we can use numpy to get a sum
+# have to count pixels first for prec other than 1
+
+#	# export prec1 as shp then gdal_rasterize to same dimensions as template
+#	# this is not ideal because now the template raster and gdal_rasterize have to use the same rows/cols and pixel width/height and SRS
+#	# this is because there is an issue with nulls when using st_asraster on prec1 which does not seem to be the result of nodata or pixeltype
+#	gdal_rasterize -co COMPRESS=DEFLATE -a_srs EPSG:4326 -a financials -l prec1 -te -180 -90 180 90 -tr 0.01 0.01 PG:"dbname='$db' host='localhost' port='5432' user='$user'" /tmp/prec1.tif
+	# export prec{2_nointeresects,3,4,568} as raster but first have to establish the count of pixels and update their financials as ( sum_financials / count_pixels )
+	# rm unwanted previous output rasters - hope these were not needed!
+	rm /tmp/prec*.tif 2>/dev/null
+	for n in 3 4 568
+	do
+		# make tmp dir for output rasters
+		tmpdir=$(mktemp -d)
+		# for each gid, get a tif where values are ( sum_financials for poly / pixel count for poly )
+		# later gdalbuildvrt to make mosaic
+		# this is just to avoid the slow st_union
+		a="'"
+		echo "copy ( select gid from prec${n} ) to stdout" |\
+		psql $db |\
+		parallel --gnu '
+			echo "
+				copy ( 
+					select 
+						encode((st_asgdalraster(weighted.rast,'$a'GTiff'$a',ARRAY['$a'COMPRESS=DEFLATE'$a'],4326)),'$a'hex'$a') 
+					from 
+						( select st_asraster(tmp.geom,(select rast from template),'$a'32BF'$a',(financials/st_count(tmp.rast)),-9999) as rast from ( select geom,financials,st_asraster(geom,(select rast from template),'$a'32BF'$a',financials,-9999) as rast from prec'$n' where gid = {} ) as tmp ) as weighted ) to stdout;" |\
+			psql '$db' |\
+			# encode back to binary
+			xxd -p -r > '$tmpdir'/prec${n}_{}.tif
+		'
+		gdalbuildvrt /tmp/prec${n}.vrt $tmpdir/*.tif
+		gdal_translate -co COMPRESS=DEFLATE /tmp/prec${n}.vrt /tmp/prec${n}.tif
+		rm -r $tmpdir
+		rm /tmp/prec${n}.vrt
+	done
+
+}
 
 mk_intermediate_locs | psql $db
 mk_prec_tables | psql $db
 mk_index | psql $db
+rasterize
