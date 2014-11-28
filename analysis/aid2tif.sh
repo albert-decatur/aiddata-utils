@@ -18,7 +18,7 @@
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
 # example use: $0 m4r usd allgeom climate_cities /tmp/out.tif
 
-inaid=m4r
+inaid=mini_m4r
 infinancials=usd
 ingeom=allgeom
 db=scratch
@@ -84,41 +84,35 @@ function mk_prec_tables {
 		echo "
 			drop table prec${prec_code_table};
 			create table prec${prec_code_table} as 
-			select 
-				( financials_per_loc / ( st_area(geom::geography)/1000000 ) ) as financials,
-				geom
-			from 
+			select
+				p.gid,
+				sum(financials) as financials,
+				p.geom
+			from
 				(
 					select 
-						financials_per_loc,
-						a.geom 
+						a.gid,
+						sum(i.financials_per_loc) as financials,
+						a.geom
 					from 
-						( 
-							select 
-								sum(i.financials_per_loc) as financials_per_loc,
-								a.gid as geom_id 
-							from 
-								intermediate_locs as i,
-								allgeom as a 
-							where 
-								( $prec_code_where ) 
-								and a.adm_level = '$adm' 
-								and st_within(i.geom,a.geom) 
-							group by 
-								a.gid 
-						) as tmp,
+						intermediate_locs as i,
 						allgeom as a 
 					where 
-						a.gid = tmp.geom_id 
-				) as a
-			;
-			alter table prec${prec_code_table} add column gid SERIAL
+						( $prec_code_where ) 
+						and a.adm_level = '$adm' 
+						and st_within(i.geom,a.geom) 
+					group by 
+						a.gid
+				) as p,
+				intermediate_locs as i
+			where
+				st_within(i.geom,p.geom)
+			group by 
+				p.gid,p.geom
 			;"
 	}
 # mk prec code 1 table - move all lat/lng over to template pixels after summing financials to template pixels
 # this prevents us from having to use st_union(rast,'SUM') which fails
-# use Lambert Azimuthal Equal-Area, find pixel surface area and divide financials by it to get aid per sqkm, export points to shapefile, rasterize with gdal, and then incorporate to map algebra
-# it is perhaps more correct to pursue calculating the area of individual pixels with degrees as map units (which I did implement), but this creates the problem of PostGIS coming up with null pixels when it should not
 echo "
 	drop table prec1;
 	create table prec1 as 
@@ -143,6 +137,8 @@ echo "
 						i.precision_code = '1'
 				) as p
 			group by 
+				-- ensure that all points snap to the template pixels and group their financials by these pixels
+				-- this cuts down on the number of layers for map algebra later
 				st_worldtorastercoordx((select rast from template),p.geom),st_worldtorastercoordy((select rast from template),p.geom)
 		) as tmp
 	;
@@ -150,41 +146,81 @@ echo "
 	;"
 # mk prec code 2 table - buffer point by 25km and clip to adm0 it falls under
 echo "
-	drop table prec2;
-	create table prec2 as 
+	drop table _prec2;
+	create table _prec2 as 
 	select
-		( tmp.financials_per_loc / ( st_area(tmp.geom::geography)/1000000 ) ) as financials,
+		tmp.financials_per_loc as financials,
 		tmp.geom
 	from 
 		(
 			select
 				i.project_id,
 				i.financials_per_loc,
-				-- clip the 25km buffer to the adm0 that the point lies in
-				st_intersection(
-					(
-						-- make the 25km bufer
-						(st_buffer(i.geom::geography,25000)::geometry)
-					),
-					st_makevalid(a.geom)
-				) as geom 
+				st_buffer(i.geom::geography,25000)::geometry as geom
+--				-- clip the 25km buffer to the adm0 that the point lies in
+--				st_intersection(
+--					(
+--						-- make the 25km bufer
+--						(st_buffer(i.geom::geography,25000)::geometry)
+--					),
+--					st_makevalid(a.geom)
+--				) as geom 
 			from
-				intermediate_locs as i,
-				allgeom as a 
+				intermediate_locs as i--,
+--				allgeom as a 
 			where 
-				st_within(i.geom,a.geom) 
-				and a.adm_level = '0' 
-				and i.precision_code = '2'
+--				st_within(i.geom,a.geom) 
+--				and a.adm_level = '0' and
+				i.precision_code = '2'
 		) as tmp
 	;
-	alter table prec2 add column gid SERIAL
+	alter table _prec2 add column gid SERIAL
+	;
+	-- ensure there are no geometry collections by converting to multipolygon
+	-- this is necessary to make table prec2_nointersect
+	drop table prec2;
+	create table prec2 as 
+	select 
+		gid,
+		financials,
+		case when 
+			st_geometrytype(geom) = 'ST_GeometryCollection' 
+		then 
+			ST_CollectionExtract(geom,3) 
+		else 
+			geom 
+		end as geom 
+	from 
+		_prec2
+	;
+	-- make a single table for prec2 polys where there is no intersection
+	-- this cuts down on the number of layers in map algebra later
+	drop table prec2_nointersect;
+	create table prec2_nointersect as
+	select 
+		* 
+	from 
+		prec2 as p 
+	where 
+		p.gid not in ( 
+			select 
+				a.gid 
+			from 
+				prec2 as a,
+				prec2 as b 
+			where 
+				st_intersects(a.geom,b.geom) 
+				and a.gid != b.gid 
+			group by 
+				a.gid,a.financials,a.geom 
+		)
 	;"
 # get geoms for prec 3
-#by_adm 3 2
+by_adm 3 2
 # get geoms for prec 4
-#by_adm 4 1
+by_adm 4 1
 # get geoms for prec 6 or 8
-#by_adm "5 6 8" 0
+by_adm "5 6 8" 0
 }
 
 # make GIST index for each precision code table
