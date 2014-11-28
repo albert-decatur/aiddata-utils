@@ -252,18 +252,18 @@ function mk_index {
 
 # rasterize the precision geom layers, with one layer each for prec{1,3,4,568} and one raster per feature for pre2 (they overlap) 
 function rasterize {
-# export tifs for prec{1,2_nointeresects,3,4,568}, and for each prec2_intersects raster
-# next we can use numpy to get a sum
-# have to count pixels first for prec other than 1
+	# export tifs for prec{1,2_nointeresects,3,4,568}, and for each prec2_intersects raster
+	# next we can use numpy to get a sum
+	# have to count pixels first for prec other than 1
 
-#	# export prec1 as shp then gdal_rasterize to same dimensions as template
-#	# this is not ideal because now the template raster and gdal_rasterize have to use the same rows/cols and pixel width/height and SRS
-#	# this is because there is an issue with nulls when using st_asraster on prec1 which does not seem to be the result of nodata or pixeltype
-#	gdal_rasterize -co COMPRESS=DEFLATE -a_srs EPSG:4326 -a financials -l prec1 -te -180 -90 180 90 -tr 0.01 0.01 PG:"dbname='$db' host='localhost' port='5432' user='$user'" /tmp/prec1.tif
-	# export prec{2_nointeresects,3,4,568} as raster but first have to establish the count of pixels and update their financials as ( sum_financials / count_pixels )
-	# rm unwanted previous output rasters - hope these were not needed!
+	# rm previous output rasters - hope these were not needed!
 	rm /tmp/prec*.tif 2>/dev/null
-	for n in 3 4 568
+	# export prec1 as shp then gdal_rasterize to same dimensions as template
+	# this is not ideal because now the template raster and gdal_rasterize have to use the same rows/cols and pixel width/height and SRS
+	# this is because there is an issue with nulls when using st_asraster on prec1 which does not seem to be the result of nodata or pixeltype
+	gdal_rasterize -co COMPRESS=DEFLATE -a_srs EPSG:4326 -a financials -l prec1 -te -180 -90 180 90 -tr 0.01 0.01 PG:"dbname='$db' host='localhost' port='5432' user='$user'" /tmp/prec1.tif
+	# export prec{2_nointeresects,3,4,568} as raster but first have to establish the count of pixels and update their financials as ( sum_financials / count_pixels )
+	for n in 2_nointersect 2_intersect 3 4 568
 	do
 		# make tmp dir for output rasters
 		tmpdir=$(mktemp -d)
@@ -284,10 +284,14 @@ function rasterize {
 			# encode back to binary
 			xxd -p -r > '$tmpdir'/prec${n}_{}.tif
 		'
-		gdalbuildvrt /tmp/prec${n}.vrt $tmpdir/*.tif
-		gdal_translate -co COMPRESS=DEFLATE /tmp/prec${n}.vrt /tmp/prec${n}.tif
-		rm -r $tmpdir
-		rm /tmp/prec${n}.vrt
+		if [[ $n == "2_intersect" ]]; then
+			false
+		else
+			gdalbuildvrt /tmp/prec${n}.vrt $tmpdir/*.tif
+			gdal_translate -co COMPRESS=DEFLATE /tmp/prec${n}.vrt /tmp/prec${n}.tif
+			rm -r $tmpdir
+			rm /tmp/prec${n}.vrt
+		fi
 	done
 
 }
