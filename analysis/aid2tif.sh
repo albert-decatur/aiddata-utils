@@ -159,21 +159,20 @@ echo "
 				i.project_id,
 				i.financials_per_loc,
 				st_buffer(i.geom::geography,25000)::geometry as geom
--- tmp do not clip to adm0 to speed up testing
---				-- clip the 25km buffer to the adm0 that the point lies in
---				st_intersection(
---					(
---						-- make the 25km bufer
---						(st_buffer(i.geom::geography,25000)::geometry)
---					),
---					st_makevalid(a.geom)
---				) as geom 
+				-- clip the 25km buffer to the adm0 that the point lies in
+				st_intersection(
+					(
+						-- make the 25km bufer
+						(st_buffer(i.geom::geography,25000)::geometry)
+					),
+					st_makevalid(a.geom)
+				) as geom 
 			from
 				intermediate_locs as i--,
---				allgeom as a 
+				allgeom as a 
 			where 
---				st_within(i.geom,a.geom) 
---				and a.adm_level = '0' and
+				st_within(i.geom,a.geom) 
+				and a.adm_level = '0' and
 				i.precision_code = '2'
 		) as tmp
 	;
