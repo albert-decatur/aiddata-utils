@@ -18,7 +18,7 @@
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
 # example use: $0 m4r usd allgeom climate_cities /tmp/out.tif
 
-inaid=mini_m4r
+inaid=m4r
 infinancials=usd
 ingeom=allgeom
 db=scratch
@@ -263,6 +263,8 @@ function rasterize {
 	# this is because there is an issue with nulls when using st_asraster on prec1 which does not seem to be the result of nodata or pixeltype
 	gdal_rasterize -co COMPRESS=DEFLATE -a_srs EPSG:4326 -a financials -l prec1 -te -180 -90 180 90 -tr 0.01 0.01 PG:"dbname='$db' host='localhost' port='5432' user='$user'" /tmp/prec1.tif
 	# export prec{2_nointeresects,3,4,568} as raster but first have to establish the count of pixels and update their financials as ( sum_financials / count_pixels )
+	# make dir for all prec rasters to go into, including 2_intersects dir
+	allprecdir=$(mktemp -d)
 	for n in 2_nointersect 2_intersect 3 4 568
 	do
 		# make tmp dir for output rasters
@@ -285,15 +287,47 @@ function rasterize {
 			xxd -p -r > '$tmpdir'/prec${n}_{}.tif
 		'
 		if [[ $n == "2_intersect" ]]; then
-			false
+			mv $tmpdir $allprecdir
 		else
 			gdalbuildvrt /tmp/prec${n}.vrt $tmpdir/*.tif
-			gdal_translate -co COMPRESS=DEFLATE /tmp/prec${n}.vrt /tmp/prec${n}.tif
+			gdal_translate -co COMPRESS=DEFLATE ${allprecdir}/prec${n}.vrt /tmp/prec${n}.tif
 			rm -r $tmpdir
 			rm /tmp/prec${n}.vrt
 		fi
 	done
-
+# for all prec, build gdal virtual that can be imported into numpy
+cd /tmp/
+gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata -9999 -separate $( find $allprecdir -type f -iregex ".*[.]tif$")
+# execute numpy steps with mask where -9999
+# sum all values in prec.vrt and export to tif
+# mk tmp file for python
+tmppy=$(mktemp)
+cat > ${tmppy}.py <<EOF
+import numpy as np
+import numpy.ma as ma
+from osgeo import gdal
+ndv=-9999
+g = gdal.Open("prec.vrt")
+data = g.ReadAsArray()
+mdata = ma.masked_values(data,ndv)
+band = g.GetRasterBand(1)
+xsize = band.XSize
+ysize = band.YSize
+format = "GTiff"
+driver = gdal.GetDriverByName( format )
+out = driver.Create("/tmp/out.tif",xsize,ysize,1,gdal.GDT_Float32)
+outBand = out.GetRasterBand(1)
+projection = g.GetProjection()
+out.SetProjection(projection)
+geotransform = g.GetGeoTransform()
+out.SetGeoTransform(geotransform)
+outBand.SetNoDataValue(ndv)
+sum = mdata.sum(axis=0)
+outBand.WriteArray(sum)
+out = None
+EOF
+# execute numpy
+python ${tmppy}.py
 }
 
 mk_intermediate_locs | psql $db
