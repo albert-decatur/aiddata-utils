@@ -322,7 +322,7 @@ xsize = band.XSize
 ysize = band.YSize
 format = "GTiff"
 driver = gdal.GetDriverByName( format )
-out = driver.Create("/tmp/out.tif",xsize,ysize,1,gdal.GDT_Float32)
+out = driver.Create("/tmp/out.tif",xsize,ysize,1,gdal.GDT_Float32,options = ['COMPRESS=DEFLATE'] )
 outBand = out.GetRasterBand(1)
 projection = g.GetProjection()
 out.SetProjection(projection)
@@ -338,8 +338,8 @@ EOF
 	python ${tmppy}.py
 }
 
-mk_intermediate_locs | psql $db
-mk_prec_tables | psql $db
-mk_index | psql $db
-rasterize
+#mk_intermediate_locs | psql $db
+#mk_prec_tables | psql $db
+#mk_index | psql $db
+#rasterize
 map_algebra
