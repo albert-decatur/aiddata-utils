@@ -18,7 +18,7 @@
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
 # example use: $0 m4r usd allgeom climate_cities /tmp/out.tif
 
-inaid=m4r
+inaid=mini_m4r
 infinancials=usd
 ingeom=allgeom
 db=scratch
@@ -158,21 +158,22 @@ echo "
 			select
 				i.project_id,
 				i.financials_per_loc,
+--				temporary measure to replace st_makevalid for speed testing
 				st_buffer(i.geom::geography,25000)::geometry as geom
-				-- clip the 25km buffer to the adm0 that the point lies in
-				st_intersection(
-					(
-						-- make the 25km bufer
-						(st_buffer(i.geom::geography,25000)::geometry)
-					),
-					st_makevalid(a.geom)
-				) as geom 
+--				-- clip the 25km buffer to the adm0 that the point lies in
+--				st_intersection(
+--					(
+--						-- make the 25km bufer
+--						(st_buffer(i.geom::geography,25000)::geometry)
+--					),
+--					st_makevalid(a.geom)
+--				) as geom 
 			from
-				intermediate_locs as i--,
-				allgeom as a 
+				intermediate_locs as i
+--				,allgeom as a 
 			where 
-				st_within(i.geom,a.geom) 
-				and a.adm_level = '0' and
+--				st_within(i.geom,a.geom) 
+--				and a.adm_level = '0' and
 				i.precision_code = '2'
 		) as tmp
 	;
@@ -286,22 +287,29 @@ function rasterize {
 			xxd -p -r > '$tmpdir'/prec${n}_{}.tif
 		'
 		if [[ $n == "2_intersect" ]]; then
-			mv $tmpdir $allprecdir
+			if [[ $( find $tmpdir -type f | wc -l ) -gt 0 ]]; then
+				mv $tmpdir $allprecdir/
+			fi
 		else
-			gdalbuildvrt /tmp/prec${n}.vrt $tmpdir/*.tif
-			gdal_translate -co COMPRESS=DEFLATE ${allprecdir}/prec${n}.vrt /tmp/prec${n}.tif
+			cd /tmp/
+			gdalbuildvrt ${allprecdir}/prec${n}.vrt $tmpdir/*.tif
+			gdal_translate -co COMPRESS=DEFLATE ${allprecdir}/prec${n}.vrt ${allprecdir}/prec${n}.tif
 			rm -r $tmpdir
-			rm /tmp/prec${n}.vrt
+			rm ${allprecdir}/prec${n}.vrt
 		fi
 	done
 # for all prec, build gdal virtual that can be imported into numpy
 cd /tmp/
-gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata -9999 -separate $( find $allprecdir -type f -iregex ".*[.]tif$")
-# execute numpy steps with mask where -9999
-# sum all values in prec.vrt and export to tif
-# mk tmp file for python
-tmppy=$(mktemp)
-cat > ${tmppy}.py <<EOF
+gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata -9999 -separate $( find $allprecdir -type f )
+}
+
+function map_algebra {
+	# execute numpy steps with mask where -9999
+	# sum all values in prec.vrt and export to tif
+	cd /tmp/
+	# mk tmp file for python
+	tmppy=$(mktemp)
+	cat > ${tmppy} <<EOF
 import numpy as np
 import numpy.ma as ma
 from osgeo import gdal
@@ -325,11 +333,13 @@ sum = mdata.sum(axis=0)
 outBand.WriteArray(sum)
 out = None
 EOF
-# execute numpy
-python ${tmppy}.py
+	# execute numpy
+	mv $tmppy ${tmppy}.py
+	python ${tmppy}.py
 }
 
 mk_intermediate_locs | psql $db
 mk_prec_tables | psql $db
 mk_index | psql $db
 rasterize
+map_algebra
