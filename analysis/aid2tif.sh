@@ -16,13 +16,14 @@
 #	assumes srid of allgeom and template raster is EPSG:4326
 #	assumes 36000, 17363 columns and rows in the EPSG:4326 template raster (that's '-te -180 -90 180 90 -tr 0.01 0.01' in gdal_rasterize speak)
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
-# example use: $0 m4r usd allgeom climate_cities /tmp/out.tif
+# example use: $0 m4r usd allgeom climate_cities adecatur 0 /tmp/out.tif
 
-inaid=mini_m4r
+inaid=bar
 infinancials=usd
 ingeom=allgeom
 db=scratch
 user=adecatur
+nodata=0
 outrast=/tmp/out.tif
 rm $outrast 2>/dev/null
 
@@ -158,22 +159,20 @@ echo "
 			select
 				i.project_id,
 				i.financials_per_loc,
---				temporary measure to replace st_makevalid for speed testing
-				st_buffer(i.geom::geography,25000)::geometry as geom
---				-- clip the 25km buffer to the adm0 that the point lies in
---				st_intersection(
---					(
---						-- make the 25km bufer
---						(st_buffer(i.geom::geography,25000)::geometry)
---					),
---					st_makevalid(a.geom)
---				) as geom 
+				-- clip the 25km buffer to the adm0 that the point lies in
+				st_intersection(
+					(
+						-- make the 25km bufer
+						(st_buffer(i.geom::geography,25000)::geometry)
+					),
+					st_makevalid(a.geom)
+				) as geom 
 			from
 				intermediate_locs as i
---				,allgeom as a 
+				,allgeom as a 
 			where 
---				st_within(i.geom,a.geom) 
---				and a.adm_level = '0' and
+				st_within(i.geom,a.geom) 
+				and a.adm_level = '0' and
 				i.precision_code = '2'
 		) as tmp
 	;
@@ -279,9 +278,30 @@ function rasterize {
 			echo "
 				copy ( 
 					select 
-						encode((st_asgdalraster(weighted.rast,'$a'GTiff'$a',ARRAY['$a'COMPRESS=DEFLATE'$a'],4326)),'$a'hex'$a') 
+						encode(
+							(
+								st_asgdalraster(
+									weighted.rast,'$a'GTiff'$a',ARRAY['$a'COMPRESS=DEFLATE'$a'],4326
+								)
+							),'$a'hex'$a'
+						) 
 					from 
-						( select st_asraster(tmp.geom,(select rast from template),'$a'32BF'$a',(financials/st_count(tmp.rast)),-9999) as rast from ( select geom,financials,st_asraster(geom,(select rast from template),'$a'32BF'$a',financials,-9999) as rast from prec'$n' where gid = {} ) as tmp ) as weighted ) to stdout;" |\
+						( 
+							select 
+								st_asraster(tmp.geom,(select rast from template),'$a'32BF'$a',(financials/st_count(tmp.rast)),0) as rast 
+							from 
+								( 
+									select 
+										geom,
+										financials,
+										st_asraster(geom,(select rast from template),'$a'32BF'$a',financials,0) as rast 
+									from 
+										prec'$n' 
+									where 
+										gid = {} 
+								) as tmp 
+						) as weighted 
+				) to stdout;" |\
 			psql '$db' |\
 			# encode back to binary
 			xxd -p -r > '$tmpdir'/prec${n}_{}.tif
@@ -300,11 +320,12 @@ function rasterize {
 	done
 # for all prec, build gdal virtual that can be imported into numpy
 cd /tmp/
-gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata -9999 -separate $( find $allprecdir -type f )
+gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f ) /tmp/prec1.tif
 }
 
+# need to dice input so can handle map algebra without memory issues
 function map_algebra {
-	# execute numpy steps with mask where -9999
+	# execute numpy steps with mask where 0
 	# sum all values in prec.vrt and export to tif
 	cd /tmp/
 	# mk tmp file for python
@@ -313,8 +334,9 @@ function map_algebra {
 import numpy as np
 import numpy.ma as ma
 from osgeo import gdal
-ndv=-9999
+ndv=0
 g = gdal.Open("prec.vrt")
+#data = g.ReadAsArray(band = None, dataset = None)
 data = g.ReadAsArray()
 mdata = ma.masked_values(data,ndv)
 band = g.GetRasterBand(1)
@@ -322,7 +344,7 @@ xsize = band.XSize
 ysize = band.YSize
 format = "GTiff"
 driver = gdal.GetDriverByName( format )
-out = driver.Create("/tmp/out.tif",xsize,ysize,1,gdal.GDT_Float32,options = ['COMPRESS=DEFLATE'] )
+out = driver.Create("$outrast",xsize,ysize,1,gdal.GDT_Float32,options = ['COMPRESS=DEFLATE'] )
 outBand = out.GetRasterBand(1)
 projection = g.GetProjection()
 out.SetProjection(projection)
@@ -338,8 +360,8 @@ EOF
 	python ${tmppy}.py
 }
 
-#mk_intermediate_locs | psql $db
-#mk_prec_tables | psql $db
-#mk_index | psql $db
-#rasterize
-map_algebra
+mk_intermediate_locs | psql $db
+mk_prec_tables | psql $db
+mk_index | psql $db
+rasterize
+#map_algebra
