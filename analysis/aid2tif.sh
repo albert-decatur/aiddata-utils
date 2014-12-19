@@ -16,6 +16,7 @@
 #	assumes srid of allgeom and template raster is EPSG:4326
 #	assumes 36000, 17363 columns and rows in the EPSG:4326 template raster (that's '-te -180 -90 180 90 -tr 0.01 0.01' in gdal_rasterize speak)
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
+# TODO - make nodata a variable
 # example use: $0 m4r usd allgeom climate_cities adecatur 0 /tmp/out.tif
 
 inaid=bar
@@ -23,7 +24,6 @@ infinancials=usd
 ingeom=allgeom
 db=scratch
 user=adecatur
-nodata=0
 outrast=/tmp/out.tif
 rm $outrast 2>/dev/null
 
@@ -86,32 +86,19 @@ function mk_prec_tables {
 		echo "
 			drop table prec${prec_code_table};
 			create table prec${prec_code_table} as 
-			select
-				p.gid,
-				sum(financials) as financials,
-				p.geom
-			from
-			-- get adm that have intermediate points
-				(
-					select 
-						a.gid,
-						sum(i.financials_per_loc) as financials,
-						a.geom
-					from 
-						intermediate_locs as i,
-						allgeom as a 
-					where 
-						( $prec_code_where ) 
-						and a.adm_level = '$adm' 
-						and st_within(i.geom,a.geom) 
-					group by 
-						a.gid
-				) as p,
-				intermediate_locs as i
-			where
-				st_within(i.geom,p.geom)
+			select 
+				a.gid,
+				sum(i.financials_per_loc) as financials,
+				a.geom
+			from 
+				intermediate_locs as i,
+				allgeom as a 
+			where 
+				( $prec_code_where ) 
+				and a.adm_level = '$adm' 
+				and st_within(i.geom,a.geom) 
 			group by 
-				p.gid,p.geom
+				a.gid
 			;"
 	}
 # mk prec code 1 table - move all lat/lng over to template pixels after summing financials to template pixels
@@ -318,9 +305,11 @@ function rasterize {
 			rm ${allprecdir}/prec${n}.vrt
 		fi
 	done
+# mv prec1 tif into same dir as everything else
+mv /tmp/prec1.tif ${allprecdir}
 # for all prec, build gdal virtual that can be imported into numpy
 cd /tmp/
-gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f ) /tmp/prec1.tif
+gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f )
 }
 
 # need to dice input so can handle map algebra without memory issues
