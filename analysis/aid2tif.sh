@@ -17,15 +17,14 @@
 #	assumes 36000, 17363 columns and rows in the EPSG:4326 template raster (that's '-te -180 -90 180 90 -tr 0.01 0.01' in gdal_rasterize speak)
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
 # TODO - make nodata a variable
-# example use: $0 m4r usd allgeom climate_cities adecatur 0 /tmp/out.tif
+# example use: $0 m4r usd allgeom climate_cities adecatur /tmp/out.tif
 
-inaid=bar
-infinancials=usd
-ingeom=allgeom
-db=scratch
-user=adecatur
-outrast=/tmp/out.tif
-rm $outrast 2>/dev/null
+inaid=$1
+infinancials=$2
+ingeom=$3
+db=$4
+user=$5
+outdir=$6
 
 function mk_intermediate_locs {
 	# make an intermediate table with financials_per_loc, assuming an even split of project funds between all project locs
@@ -310,47 +309,11 @@ mv /tmp/prec1.tif ${allprecdir}
 # for all prec, build gdal virtual that can be imported into numpy
 cd /tmp/
 gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f )
-}
-
-# need to dice input so can handle map algebra without memory issues
-function map_algebra {
-	# execute numpy steps with mask where 0
-	# sum all values in prec.vrt and export to tif
-	cd /tmp/
-	# mk tmp file for python
-	tmppy=$(mktemp)
-	cat > ${tmppy} <<EOF
-import numpy as np
-import numpy.ma as ma
-from osgeo import gdal
-ndv=0
-g = gdal.Open("prec.vrt")
-#data = g.ReadAsArray(band = None, dataset = None)
-data = g.ReadAsArray()
-mdata = ma.masked_values(data,ndv)
-band = g.GetRasterBand(1)
-xsize = band.XSize
-ysize = band.YSize
-format = "GTiff"
-driver = gdal.GetDriverByName( format )
-out = driver.Create("$outrast",xsize,ysize,1,gdal.GDT_Float32,options = ['COMPRESS=DEFLATE'] )
-outBand = out.GetRasterBand(1)
-projection = g.GetProjection()
-out.SetProjection(projection)
-geotransform = g.GetGeoTransform()
-out.SetGeoTransform(geotransform)
-outBand.SetNoDataValue(ndv)
-sum = mdata.sum(axis=0)
-outBand.WriteArray(sum)
-out = None
-EOF
-	# execute numpy
-	mv $tmppy ${tmppy}.py
-	python ${tmppy}.py
+# rename to be outdir
+mv ${allprecdir} $outdir
 }
 
 mk_intermediate_locs | psql $db
 mk_prec_tables | psql $db
 mk_index | psql $db
 rasterize
-#map_algebra
