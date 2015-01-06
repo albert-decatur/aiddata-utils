@@ -17,14 +17,23 @@
 #	assumes 36000, 17363 columns and rows in the EPSG:4326 template raster (that's '-te -180 -90 180 90 -tr 0.01 0.01' in gdal_rasterize speak)
 # would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
 # TODO - make nodata a variable
-# example use: $0 m4r usd allgeom climate_cities adecatur /tmp/out.tif
+# example use: $0 m4r usd allgeom climate_cities adecatur template_rast /tmp/
 
 inaid=$1
 infinancials=$2
 ingeom=$3
 db=$4
 user=$5
-outdir=$6
+template_rast=$6
+outdir=$7
+
+function add_template_rast {
+	echo "drop table if exists $( basename $template_rast .tif);" | psql $db
+	# using -R b/c raster often too big for physical import to db
+	raster2pgsql -R $template_rast | psql $db
+	# from now on var for template_rast will be the basename - ie, the table name in psql
+	template_rast=$( basename $template_rast .tif)
+}
 
 function mk_intermediate_locs {
 	# make an intermediate table with financials_per_loc, assuming an even split of project funds between all project locs
@@ -107,13 +116,13 @@ echo "
 	create table prec1 as 
 	select
 		tmp.financials_per_loc as financials,
-		st_setsrid((st_makepoint(ST_RasterToWorldCoordX((select rast from template),tmp.xcol),ST_RasterToWorldCoordY((select rast from template),tmp.ycol))),4326) as geom 
+		st_setsrid((st_makepoint(ST_RasterToWorldCoordX((select rast from $template_rast),tmp.xcol),ST_RasterToWorldCoordY((select rast from $template_rast),tmp.ycol))),4326) as geom 
 	from 
 		( 
 			select 
 				sum(p.financials_per_loc) as financials_per_loc,
-				st_worldtorastercoordx((select rast from template),p.geom) as xcol,
-				st_worldtorastercoordy((select rast from template),p.geom) as ycol 
+				st_worldtorastercoordx((select rast from $template_rast),p.geom) as xcol,
+				st_worldtorastercoordy((select rast from $template_rast),p.geom) as ycol 
 			from
 				(
 					select 
@@ -128,7 +137,7 @@ echo "
 			group by 
 				-- ensure that all points snap to the template pixels and group their financials by these pixels
 				-- this cuts down on the number of layers for map algebra later
-				st_worldtorastercoordx((select rast from template),p.geom),st_worldtorastercoordy((select rast from template),p.geom)
+				st_worldtorastercoordx((select rast from $template_rast),p.geom),st_worldtorastercoordy((select rast from $template_rast),p.geom)
 		) as tmp
 	;
 	alter table prec1 add column gid SERIAL
@@ -274,13 +283,13 @@ function rasterize {
 					from 
 						( 
 							select 
-								st_asraster(tmp.geom,(select rast from template),'$a'32BF'$a',(financials/st_count(tmp.rast)),0) as rast 
+								st_asraster(tmp.geom,(select rast from '$template_rast'),'$a'32BF'$a',(financials/st_count(tmp.rast)),0) as rast 
 							from 
 								( 
 									select 
 										geom,
 										financials,
-										st_asraster(geom,(select rast from template),'$a'32BF'$a',financials,0) as rast 
+										st_asraster(geom,(select rast from '$template_rast'),'$a'32BF'$a',financials,0) as rast 
 									from 
 										prec'$n' 
 									where 
@@ -309,7 +318,9 @@ mv /tmp/prec1.tif ${allprecdir}
 # for all prec, build gdal virtual that can be imported into numpy
 cd /tmp/
 gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f )
+}
 
+add_template_rast
 mk_intermediate_locs | psql $db
 mk_prec_tables | psql $db
 mk_index | psql $db
