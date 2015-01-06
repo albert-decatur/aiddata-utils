@@ -313,11 +313,13 @@ function rasterize {
 			rm ${allprecdir}/prec${n}.vrt
 		fi
 	done
-# mv prec1 tif into same dir as everything else
-mv /tmp/prec1.tif ${allprecdir}
-# for all prec, build gdal virtual that can be imported into numpy
-cd /tmp/
-gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f )
+	# mv prec1 tif into same dir as everything else
+	mv /tmp/prec1.tif ${allprecdir}
+	# for all prec, build gdal virtual that can be imported into numpy
+	cd /tmp/
+	gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f )
+	# rename to be outdir                                                                                                                                          
+	mv ${allprecdir} $outdir 
 }
 
 add_template_rast
