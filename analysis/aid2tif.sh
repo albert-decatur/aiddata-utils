@@ -7,17 +7,16 @@
 # inputs: postgres table with { projectid, financials column, precision code, lat, lng }, **and** allgeom table in postgis from GAUL boundaries with adm_level field (0|1|2) and geom field
 # output: raster with user's choice of x/y res with financials by pixel
 # NB: 
-#	if tables exist they must be d#ropped manually
-#	input aid table must have valid lng,lat, be wgs84, prec code must be {1,2,3,4,5,6,8}
-#	financials must refer to project level
-#	aid must fall within an allgeom to be considered when prec code is not 1, and to be clipped properly to a prec coce 2 (clipped by the adm0 it falls into)
-#	the following fields must in the inaid table:
+#	input aid table must have valid lng,lat, have srs wgs84, prec code must be {1,2,3,4,5,6,8}
+#	financials must refer to project level, should be just commitments or just disbursements, not both
+#	aid must fall within the geom table provided to be considered when prec code is not 1, and to be clipped properly to a prec coce 2 (clipped by the adm0 it falls into)
+#	the following fields at a minimum must in the inaid table:
 #		project_id,precision_code,latitude,longitude, financial field of user's choice
+#	assumes chosen postgres db running on port 5432
 #	assumes srid of allgeom and template raster is EPSG:4326
-#	assumes 36000, 17363 columns and rows in the EPSG:4326 template raster (that's '-te -180 -90 180 90 -tr 0.01 0.01' in gdal_rasterize speak)
-# would be useful for comparing a series of scenarios and describing how the current distribution might be the result of several of these
+#	assumes square pixels in input template rast
 # TODO - make nodata a variable
-# example use: $0 m4r usd allgeom climate_cities adecatur template_rast /tmp/
+# example use: $0 m4r usd allgeom climate_cities adecatur template_rast.tif /tmp/output/
 
 inaid=$1
 infinancials=$2
@@ -28,11 +27,13 @@ template_rast=$6
 outdir=$7
 
 function add_template_rast {
-	echo "drop table if exists $( basename $template_rast .tif);" | psql $db
+	# get the name of the psql table for the rast - just basename
+	template_rast_basename=$( basename $template_rast .tif)
+	# drop any table of the name of the template rast in the target psql db
+	echo "drop table if exists $template_rast_basename;" | psql $db
+	# connect template rast to psql db
 	# using -R b/c raster often too big for physical import to db
 	raster2pgsql -R $template_rast | psql $db
-	# from now on var for template_rast will be the basename - ie, the table name in psql
-	template_rast=$( basename $template_rast .tif)
 }
 
 function mk_intermediate_locs {
@@ -100,7 +101,7 @@ function mk_prec_tables {
 				a.geom
 			from 
 				intermediate_locs as i,
-				allgeom as a 
+				$ingeom as a 
 			where 
 				( $prec_code_where ) 
 				and a.adm_level = '$adm' 
@@ -116,13 +117,15 @@ echo "
 	create table prec1 as 
 	select
 		tmp.financials_per_loc as financials,
-		st_setsrid((st_makepoint(ST_RasterToWorldCoordX((select rast from $template_rast),tmp.xcol),ST_RasterToWorldCoordY((select rast from $template_rast),tmp.ycol))),4326) as geom 
+		st_setsrid(
+				st_centroid(ST_PixelAsPolygon( ( select rast from $template_rast_basename ),tmp.col,tmp.row ))
+		,4326) as geom 
 	from 
 		( 
 			select 
 				sum(p.financials_per_loc) as financials_per_loc,
-				st_worldtorastercoordx((select rast from $template_rast),p.geom) as xcol,
-				st_worldtorastercoordy((select rast from $template_rast),p.geom) as ycol 
+				st_worldtorastercoordx((select rast from $template_rast_basename),p.geom) as col,
+				st_worldtorastercoordy((select rast from $template_rast_basename),p.geom) as row 
 			from
 				(
 					select 
@@ -137,7 +140,7 @@ echo "
 			group by 
 				-- ensure that all points snap to the template pixels and group their financials by these pixels
 				-- this cuts down on the number of layers for map algebra later
-				st_worldtorastercoordx((select rast from $template_rast),p.geom),st_worldtorastercoordy((select rast from $template_rast),p.geom)
+				st_worldtorastercoordx((select rast from $template_rast_basename),p.geom),st_worldtorastercoordy((select rast from $template_rast_basename),p.geom)
 		) as tmp
 	;
 	alter table prec1 add column gid SERIAL
@@ -164,7 +167,7 @@ echo "
 				) as geom 
 			from
 				intermediate_locs as i
-				,allgeom as a 
+				,$ingeom as a 
 			where 
 				st_within(i.geom,a.geom) 
 				and a.adm_level = '0' and
@@ -247,18 +250,21 @@ function mk_index {
 # rasterize the precision geom layers, with one layer each for prec{1,3,4,568} and one raster per feature for pre2 (they overlap) 
 function rasterize {
 	# export tifs for prec{1,2_nointeresects,3,4,568}, and for each prec2_intersects raster
-	# next we can use numpy to get a sum
+	# use GRASS GIS modle rbatchsum.sh to get sum of all rasters n rasters at a time - numpy fails for large batches of rasters (eg 900 global rasters at 0.1 degrees spatial res)
 	# have to count pixels first for prec other than 1
 
 	# rm previous output rasters - hope these were not needed!
 	rm /tmp/prec*.tif 2>/dev/null
-	# export prec1 as shp then gdal_rasterize to same dimensions as template
-	# this is not ideal because now the template raster and gdal_rasterize have to use the same rows/cols and pixel width/height and SRS
-	# this is because there is an issue with nulls when using st_asraster on prec1 which does not seem to be the result of nodata or pixeltype
-	gdal_rasterize -co COMPRESS=DEFLATE -a_srs EPSG:4326 -a financials -l prec1 -te -180 -90 180 90 -tr 0.01 0.01 PG:"dbname='$db' host='localhost' port='5432' user='$user'" /tmp/prec1.tif
-	# export prec{2_nointeresects,3,4,568} as raster but first have to establish the count of pixels and update their financials as ( sum_financials / count_pixels )
 	# make dir for all prec rasters to go into, including 2_intersects dir
 	allprecdir=$(mktemp -d)
+	# export prec1 as raster - this is different from the rest because there is no need to count pixels.  sums have already been made in the pixels that the prec1 points would fall into
+	# st_union on raster pixels would be ideal for export but this is very slow
+	# first get the extent and pixel width/height from the template raster
+	# pixels are assumed to be square
+	template_widthheight=$( gdalinfo $template_rast | grep "Size is" | grep -oE "[0-9.]+" | tr '\n' ' ' )
+	template_xmin_ymin_xmax_ymax=$( gdalinfo $template_rast | grep -E "^(Upper Left|Lower Right)" | awk '{print $4,$5}' | sed 's:)::g;s:\s\+::g' | tr ',' '\n' | tr '\n' ' ' | awk '{print $1,$4,$3,$2}' )
+	gdal_rasterize -co COMPRESS=DEFLATE -a_srs EPSG:4326 -a financials -l prec1 -te $template_xmin_ymin_xmax_ymax -ts $template_widthheight PG:"dbname=$db host=localhost port=5432 user=$user" ${allprecdir}/prec1.tif
+	# export prec{2_nointeresect,3,4,568} as raster but first have to establish the count of pixels and update their financials as ( sum_financials / count_pixels )
 	for n in 2_nointersect 2_intersect 3 4 568
 	do
 		# make tmp dir for output rasters
@@ -283,13 +289,13 @@ function rasterize {
 					from 
 						( 
 							select 
-								st_asraster(tmp.geom,(select rast from '$template_rast'),'$a'32BF'$a',(financials/st_count(tmp.rast)),0) as rast 
+								st_asraster(tmp.geom,(select rast from '$template_rast_basename'),'$a'32BF'$a',(financials/st_count(tmp.rast)),0) as rast 
 							from 
 								( 
 									select 
 										geom,
 										financials,
-										st_asraster(geom,(select rast from '$template_rast'),'$a'32BF'$a',financials,0) as rast 
+										st_asraster(geom,(select rast from '$template_rast_basename'),'$a'32BF'$a',financials,0) as rast 
 									from 
 										prec'$n' 
 									where 
@@ -313,8 +319,6 @@ function rasterize {
 			rm ${allprecdir}/prec${n}.vrt
 		fi
 	done
-	# mv prec1 tif into same dir as everything else
-	mv /tmp/prec1.tif ${allprecdir}
 	# for all prec, build gdal virtual that can be imported into numpy
 	cd /tmp/
 	gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f )
