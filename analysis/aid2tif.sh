@@ -262,7 +262,7 @@ function rasterize {
 	# first get the extent and pixel width/height from the template raster
 	# pixels are assumed to be square
 	template_widthheight=$( gdalinfo $template_rast | grep "Size is" | grep -oE "[0-9.]+" | tr '\n' ' ' )
-	template_xmin_ymin_xmax_ymax=$( gdalinfo $template_rast | grep -E "^(Upper Left|Lower Right)" | awk '{print $4,$5}' | sed 's:)::g;s:\s\+::g' | tr ',' '\n' | tr '\n' ' ' | awk '{print $1,$4,$3,$2}' )
+	template_xmin_ymin_xmax_ymax=$( gdalinfo $template_rast | grep -E "^(Upper Left|Lower Right)" | sed 's:(\|)::g' | awk '{print $3,$4}' | sed 's:\s\+::g' | tr ',' '\n' | tr '\n' ' ' | awk '{print $1,$4,$3,$2}' )
 	gdal_rasterize -co COMPRESS=DEFLATE -a_srs EPSG:4326 -a financials -l prec1 -te $template_xmin_ymin_xmax_ymax -ts $template_widthheight PG:"dbname=$db host=localhost port=5432 user=$user" ${allprecdir}/prec1.tif
 	# export prec{2_nointeresect,3,4,568} as raster but first have to establish the count of pixels and update their financials as ( sum_financials / count_pixels )
 	for n in 2_nointersect 2_intersect 3 4 568
