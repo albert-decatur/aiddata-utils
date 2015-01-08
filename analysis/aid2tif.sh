@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# assign geoms to aiddata points and then rasterize and sum - assume distribution by first even split between locations and then even split along surface area
-# this holds true even for prec1 pixels - summed financials are divided by pixel-by-pixel surface area (good for any units, eg WGS84's degrees)
-# assign adm0,adm1,adm2,25 km buffered point, or just initial aid point based on precision code, lat, lng
+# assign geoms to aiddata points and then make a directory of tifs from them
+# can sum these using numpy, a GIS, or rbatchsum GRASS module
 # assign financials based on input field of users choice - assumed to be at project level, distributed evenly across project locations
-# inputs: postgres table with { projectid, financials column, precision code, lat, lng }, **and** allgeom table in postgis from GAUL boundaries with adm_level field (0|1|2) and geom field
-# output: raster with user's choice of x/y res with financials by pixel
+# assign adm0 for prec5/6/8,adm1 for prec 4,adm2 for prec3,25 km buffered point for prec2, and individual pixel for prec1 (this and assignment for prec2 are actually pretty problematic - prec2 buffer may not be applicable for some datasets, and prec1 being assigned by pixel only makes sense for some spatial res)
+# inputs: postgres table with { projectid, financials column, precision code, lat, lng }, template raster for extent/spatial res, **and** allgeom table in postgis from subnational boundaries with adm_level field (0|1|2) and geom field
+# output: directory of rasters with dimenions/spatial res of input template raster
 # NB: 
 #	input aid table must have valid lng,lat, have srs wgs84, prec code must be {1,2,3,4,5,6,8}
 #	financials must refer to project level, should be just commitments or just disbursements, not both
