@@ -2,7 +2,7 @@
 
 # assign geoms to aiddata points and then make a directory of tifs from them
 # can sum these using numpy, a GIS, or rbatchsum GRASS module
-# assign financials based on input field of users choice - assumed to be at project level, distributed evenly across project locations
+# assign financials based on input field of users choice - assumed to be at project level, distributed evenly across project locations, and if geom assigned > 1 pixel, distributed evenly over that geom's pixels
 # assign adm0 for prec5/6/8,adm1 for prec 4,adm2 for prec3,25 km buffered point for prec2, and individual pixel for prec1 (this and assignment for prec2 are actually pretty problematic - prec2 buffer may not be applicable for some datasets, and prec1 being assigned by pixel only makes sense for some spatial res)
 # inputs: postgres table with { projectid, financials column, precision code, lat, lng }, template raster for extent/spatial res, **and** allgeom table in postgis from subnational boundaries with adm_level field (0|1|2) and geom field
 # output: directory of rasters with dimenions/spatial res of input template raster
