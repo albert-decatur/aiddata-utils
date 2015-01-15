@@ -39,7 +39,7 @@ function add_template_rast {
 function mk_intermediate_locs {
 	# make an intermediate table with financials_per_loc, assuming an even split of project funds between all project locs
 	echo "
-		drop table intermediate_locs;
+		drop table if exists intermediate_locs;
 		create table intermediate_locs as 
 			select 
 				$inaid.project_id,
@@ -93,7 +93,7 @@ function mk_prec_tables {
 	fi
 	adm=$2
 		echo "
-			drop table prec${prec_code_table};
+			drop table if exists prec${prec_code_table};
 			create table prec${prec_code_table} as 
 			select 
 				a.gid,
@@ -113,7 +113,7 @@ function mk_prec_tables {
 # mk prec code 1 table - move all lat/lng over to template pixels after summing financials to template pixels
 # this prevents us from having to use st_union(rast,'SUM') which fails
 echo "
-	drop table prec1;
+	drop table if exists prec1;
 	create table prec1 as 
 	select
 		tmp.financials_per_loc as financials,
@@ -147,7 +147,7 @@ echo "
 	;"
 # mk prec code 2 table - buffer point by 25km and clip to adm0 it falls under
 echo "
-	drop table _prec2;
+	drop table if exists _prec2;
 	create table _prec2 as 
 	select
 		tmp.financials_per_loc as financials,
@@ -178,7 +178,7 @@ echo "
 	;
 	-- ensure there are no geometry collections by converting to multipolygon
 	-- this is necessary to make table prec2_nointersect
-	drop table prec2;
+	drop table if exists prec2;
 	create table prec2 as 
 	select 
 		gid,
@@ -195,7 +195,7 @@ echo "
 	;
 	-- make a single table for prec2 polys where there is no intersection
 	-- this cuts down on the number of layers in map algebra later
-	drop table prec2_nointersect;
+	drop table if exists prec2_nointersect;
 	create table prec2_nointersect as
 	select 
 		* 
@@ -209,7 +209,9 @@ echo "
 				prec2 as a,
 				prec2 as b 
 			where 
-				st_intersects(a.geom,b.geom) 
+				-- note that this is raster st_intersects
+				-- sloppy - no need to write the financials field here, only need to check geom intersects
+				st_intersects(st_asraster(a.geom,(select rast from $template_rast_basename),'32BF',a.financials,0),st_asraster(b.geom,(select rast from $template_rast_basename),'32BF',b.financials,0)) 
 				and a.gid != b.gid 
 			group by 
 				a.gid,a.financials,a.geom 
@@ -217,7 +219,7 @@ echo "
 	;
 	-- take the inverse of prec2_nointersect, meaning prec2 polys that do overlap at least one other prec2 poly
 	-- note that either of these tables prec2_nointersect or prec2_intersect can legitimately have 0 records, which could cause problems for the script
-	drop table prec2_intersect; 
+	drop table if exists prec2_intersect; 
 	create table prec2_intersect as 
 	select 
 		* 
@@ -241,8 +243,9 @@ by_adm "5 6 8" 0
 
 # make GIST index for each precision code table
 function mk_index { 
-	for table in prec{1..4} prec568
+	for table in prec{1,3,4} prec2_nointersect prec2_intersect prec568
 	do
+		echo "drop index if exists i_${table};"
 		echo "create index i_${table} on $table using gist(geom);"
 	done
 }
@@ -330,4 +333,4 @@ add_template_rast
 mk_intermediate_locs | psql $db
 mk_prec_tables | psql $db
 mk_index | psql $db
-rasterize
+#rasterize
