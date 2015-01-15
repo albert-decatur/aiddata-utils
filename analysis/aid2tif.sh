@@ -91,7 +91,7 @@ function mk_prec_tables {
 				a.geom
 			from 
 				intermediate_locs as i,
-				allgeom as a 
+				$ingeom as a 
 			where 
 				( $prec_code_where ) 
 				and a.adm_level = '$adm' 
@@ -155,7 +155,7 @@ echo "
 				) as geom 
 			from
 				intermediate_locs as i
-				,allgeom as a 
+				,$ingeom as a 
 			where 
 				st_within(i.geom,a.geom) 
 				and a.adm_level = '0' and
