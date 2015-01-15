@@ -16,20 +16,13 @@
 #	assumes srid of allgeom and template raster is EPSG:4326
 #	assumes square pixels in input template rast
 # TODO - make nodata a variable
-<<<<<<< HEAD
-# example use: $0 m4r usd allgeom climate_cities adecatur /tmp/out.tif
-=======
 # example use: $0 m4r usd allgeom climate_cities adecatur template_rast.tif /tmp/output/
->>>>>>> b070a43702623c58ea0d1122f23952577c7cf246
 
 inaid=$1
 infinancials=$2
 ingeom=$3
 db=$4
 user=$5
-<<<<<<< HEAD
-outdir=$6
-=======
 template_rast=$6
 outdir=$7
 
@@ -327,21 +320,11 @@ function rasterize {
 			rm ${allprecdir}/prec${n}.vrt
 		fi
 	done
-<<<<<<< HEAD
-# mv prec1 tif into same dir as everything else
-mv /tmp/prec1.tif ${allprecdir}
-# for all prec, build gdal virtual that can be imported into numpy
-cd /tmp/
-gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f )
-# rename to be outdir
-mv ${allprecdir} $outdir
-=======
 	# for all prec, build gdal virtual that can be imported into numpy
 	cd /tmp/
 	gdalbuildvrt prec.vrt -a_srs EPSG:4326 -srcnodata 0 -separate $( find $allprecdir -type f )
 	# rename to be outdir                                                                                                                                          
 	mv ${allprecdir} $outdir 
->>>>>>> b070a43702623c58ea0d1122f23952577c7cf246
 }
 
 add_template_rast
