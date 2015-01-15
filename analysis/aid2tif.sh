@@ -35,7 +35,6 @@ function add_template_rast {
 	# using -R b/c raster often too big for physical import to db
 	raster2pgsql -R $template_rast | psql $db
 }
->>>>>>> b070a43702623c58ea0d1122f23952577c7cf246
 
 function mk_intermediate_locs {
 	# make an intermediate table with financials_per_loc, assuming an even split of project funds between all project locs
