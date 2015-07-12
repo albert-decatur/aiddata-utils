@@ -3,7 +3,7 @@
 # very dumb script that writes the bash to copy a delimited text file to postgres.  all field types are the same!
 # NB: characters used by regex must be escaped, eg -d "\|". Also, postgres ctid is used to remove header rather than having Perl read file into memory, OR use Postgres CSV format for COPY which produced quoting problems. Sloppy.
 # args: -i is input text file, -t is field type string eg "varchar(100)", -d is field delimiter, -p is postgres database
-# example use: $0 -i /tmp/foo.dat.txt -d "\|" -t "varchar(100)" -p scratch | sh
+# example use: $0 -i /tmp/foo.dat.txt -d "\|" -t "TEXT" -p scratch | sh
 
 use strict;
 use warnings;
@@ -26,6 +26,8 @@ my $type = $args{t};
 # for each field name, pad with quotes and field type, escape double quotes
 my @format;
 foreach my $quoted (@fields) {
+  # if field name has quotes, remove them
+  $quoted =~ s/"//g;
   push(@format, "\\\"$quoted\\\" $type,");
 }
 
